@@ -1,0 +1,16 @@
+{
+  "name": "naukri-auto-apply-agent",
+  "version": "1.0.0",
+  "description": "Reliable Naukri.com automation agent with retries, duplicate prevention, logs, and manual intervention support.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  }
+}
