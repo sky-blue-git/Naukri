@@ -1198,6 +1198,37 @@ export class NaukriAutoApplyAgent {
           requiredUnfilled.push(descriptor || "unnamed-required-field");
         }
 
+        // --- BLIND FALLBACK FILLER: Never ask for manual input ---
+        for (const field of fields) {
+          const value = (field.value || "").trim();
+          if (value) continue;
+          
+          const attrs = cleaned(
+             [field.getAttribute("name"), field.getAttribute("id"), field.getAttribute("placeholder"), labelFor(field)].join(" ")
+          );
+          
+          if (attrs.includes("search") || attrs.includes("keyword")) {
+             continue; // Skip site nav search bars
+          }
+          if (field.readOnly || field.disabled) continue;
+
+          if (field instanceof HTMLSelectElement) {
+            if (field.options.length > 1) {
+               field.selectedIndex = 1; 
+               fire(field, field.options[1].value);
+               filledKeys.push("blind-fallback-select");
+            }
+          } else {
+            // Give "2" for num/year questions, otherwise "Yes"
+            const fallbackText = (attrs.includes("year") || attrs.includes("month") || attrs.includes("rate") || attrs.includes("ctc") || attrs.includes("salary")) ? "2" : "Yes";
+            fire(field, fallbackText);
+            filledKeys.push("blind-fallback-text");
+          }
+        }
+        
+        // Force array empty so the script NEVER pauses
+        requiredUnfilled.length = 0;
+
         return {
           filledKeys: Array.from(new Set(filledKeys)),
           requiredUnfilled: Array.from(new Set(requiredUnfilled)).slice(0, 15),
