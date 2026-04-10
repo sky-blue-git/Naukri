@@ -108,7 +108,10 @@ export class NaukriAutoApplyAgent {
     this.context = await chromium.launchPersistentContext(profilePath, {
       headless: false,
       viewport: null,
-      args: ["--start-maximized"],
+      args: [
+        "--start-maximized",
+        "--disable-blink-features=AutomationControlled"
+      ],
     });
     this.context.setDefaultTimeout(15000);
     this.page = this.context.pages()[0] || (await this.context.newPage());
@@ -437,6 +440,7 @@ export class NaukriAutoApplyAgent {
             node.getAttribute("id") ||
             link?.getAttribute("data-job-id") ||
             "",
+          rawDataText: node.textContent || "",
         };
       });
 
@@ -444,11 +448,19 @@ export class NaukriAutoApplyAgent {
       const jobId = this.extractJobId(jobUrl, raw.explicitId);
       const title = raw.title || "Unknown title";
       const company = raw.company || "Unknown company";
+      
+      let minExp = 0;
+      const expMatch = raw.rawDataText.match(/(\d+)\s*-\s*(\d+)\s*yrs/i) || raw.rawDataText.match(/(\d+)\s*-\s*(\d+)\s*years/i);
+      if (expMatch) {
+         minExp = parseInt(expMatch[1], 10);
+      }
+      
       return {
         jobId,
         jobUrl,
         title,
         company,
+        minExp
       };
     } catch {
       return null;
@@ -513,7 +525,7 @@ export class NaukriAutoApplyAgent {
 
     if (this.shouldSkipByKeyword(job)) {
       this.stats.skipped += 1;
-      const reason = `Keyword mismatch (${this.config.requiredKeywords.join("/")})`;
+      const reason = `Keyword/Experience mismatch`;
       this.incrementSkipReason(reason);
       await this.logger.logSkipped({ ...logPayload, reason });
       return;
@@ -583,6 +595,11 @@ export class NaukriAutoApplyAgent {
   }
 
   shouldSkipByKeyword(job) {
+    const userMaxExp = parseInt(this.config.formDefaults.experience, 10) || 1;
+    if (job.minExp && job.minExp > userMaxExp + 1) {
+       return true;
+    }
+
     if (!this.config.enforceKeywordCheck) {
       return false;
     }
@@ -620,12 +637,10 @@ export class NaukriAutoApplyAgent {
   }
 
   async waitApplyInterval() {
-    if (this.config.applyIntervalMs <= 0) {
-      return;
-    }
-    // Randomize the delay to evade bot detection
-    const randomExtraMs = Math.floor(Math.random() * 6000) + 2000; 
-    await wait(this.config.applyIntervalMs + randomExtraMs);
+    // Increase base safety to minimum 5s if default is lower, plus severe randomization 4s to 25s
+    const baseInterval = Math.max(this.config.applyIntervalMs, 5000); 
+    const randomExtraMs = Math.floor(Math.random() * 20000) + 4000; 
+    await wait(baseInterval + randomExtraMs);
   }
 
   async applyToJob(job) {
@@ -946,7 +961,19 @@ export class NaukriAutoApplyAgent {
           const rect = el.getBoundingClientRect();
           return rect.width > 0 && rect.height > 0;
         };
-        const fire = (el) => {
+        const fire = (el, val) => {
+          if (val !== undefined) {
+             const nativeInputSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+             const nativeTextAreaSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+             
+             if (el instanceof HTMLInputElement && nativeInputSetter) {
+                nativeInputSetter.call(el, val);
+             } else if (el instanceof HTMLTextAreaElement && nativeTextAreaSetter) {
+                nativeTextAreaSetter.call(el, val);
+             } else {
+                el.value = val;
+             }
+          }
           el.dispatchEvent(new Event("input", { bubbles: true }));
           el.dispatchEvent(new Event("change", { bubbles: true }));
           el.dispatchEvent(new Event("blur", { bubbles: true }));
@@ -1022,6 +1049,10 @@ export class NaukriAutoApplyAgent {
               "current ctc",
               "present ctc",
               "current annual",
+              "lakhs",
+              "lacs",
+              "ctc in lacs",
+              "ctc in lakhs"
             ],
             value: defaults.currentSalary,
           },
@@ -1032,6 +1063,8 @@ export class NaukriAutoApplyAgent {
               "expected ctc",
               "expected annual",
               "desired salary",
+              "expected ctc in lacs",
+              "expected ctc in lakhs"
             ],
             value: defaults.expectedSalary,
           },
@@ -1126,7 +1159,7 @@ export class NaukriAutoApplyAgent {
               if (!selected && field.options.length > 1) {
                 field.selectedIndex = 1;
               }
-              fire(field);
+              fire(field, field.value);
               filledKeys.push(def.key);
               break;
             }
@@ -1135,8 +1168,7 @@ export class NaukriAutoApplyAgent {
             if (!nextValue) {
               break;
             }
-            field.value = nextValue;
-            fire(field);
+            fire(field, nextValue);
             filledKeys.push(def.key);
             break;
           }
@@ -1171,7 +1203,20 @@ export class NaukriAutoApplyAgent {
           requiredUnfilled: Array.from(new Set(requiredUnfilled)).slice(0, 15),
         };
       }, payload)
-      .catch(() => ({ filledKeys: [], requiredUnfilled: [] }));
+      .catch((e) => {
+        console.error("Auto-fill evaluation error:", e);
+        return { filledKeys: [], requiredUnfilled: [] };
+      });
+
+    // Added explicitly handling click for 'save' or 'submit' button right inside that popup specifically for chat style popup
+    try{
+      const widgetSaveBtn = page.locator("button:has-text('Save'), button:has-text('Submit'), button:has-text('Continue')").last();
+      const visible = await widgetSaveBtn.isVisible({timeout: 1000}).catch(()=>false);
+      if(visible && result.filledKeys.length > 0) {
+         await widgetSaveBtn.click({timeout: 3000}).catch(()=>null);
+         await wait(1500)
+      }
+    } catch(e) {}
 
     return {
       filledAny: result.filledKeys.length > 0,
