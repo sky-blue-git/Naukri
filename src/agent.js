@@ -69,6 +69,9 @@ export class NaukriAutoApplyAgent {
         currentSalary: process.env.CURRENT_SALARY ?? "0",
         expectedSalary: process.env.EXPECTED_SALARY ?? "4",
         preferredLocation: process.env.PREFERRED_LOCATION ?? "Bengaluru",
+        experience: process.env.EXPERIENCE ?? "1",
+        graduationYear: process.env.GRADUATION_YEAR ?? "2023",
+        gender: process.env.GENDER ?? "Male",
         ...config.formDefaults,
       },
     };
@@ -620,7 +623,9 @@ export class NaukriAutoApplyAgent {
     if (this.config.applyIntervalMs <= 0) {
       return;
     }
-    await wait(this.config.applyIntervalMs);
+    // Randomize the delay to evade bot detection
+    const randomExtraMs = Math.floor(Math.random() * 6000) + 2000; 
+    await wait(this.config.applyIntervalMs + randomExtraMs);
   }
 
   async applyToJob(job) {
@@ -1039,6 +1044,46 @@ export class NaukriAutoApplyAgent {
               "preferred place",
             ],
             value: defaults.preferredLocation,
+          },
+          {
+            key: "experience",
+            patterns: [
+              "experience",
+              "total experience",
+              "years of experience",
+              "overall experience",
+              "work experience",
+            ],
+            value: defaults.experience,
+          },
+          {
+            key: "graduationYear",
+            patterns: [
+              "graduation year",
+              "passing year",
+              "year of passing",
+              "year of graduation",
+              "completion year",
+              "batch",
+            ],
+            value: defaults.graduationYear,
+          },
+          {
+            key: "willingness",
+            patterns: [
+              "willing",
+              "relocate",
+              "shifts",
+              "rotational",
+              "ready to",
+              "immediate joiner",
+            ],
+            value: "yes",
+          },
+          {
+            key: "gender",
+            patterns: ["gender", "sex"],
+            value: defaults.gender,
           },
         ];
 
