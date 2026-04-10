@@ -64,6 +64,11 @@ export class NaukriAutoApplyAgent {
         config.manualModeTrustFilters,
         true,
       ),
+      autoBumpProfile: parseBoolean(
+        process.env.AUTO_BUMP_PROFILE,
+        config.autoBumpProfile,
+        true, // default true since user explicitly requested it!
+      ),
       formDefaults: {
         noticePeriod: process.env.NOTICE_PERIOD ?? "Immediate",
         currentSalary: process.env.CURRENT_SALARY ?? "0",
@@ -93,6 +98,11 @@ export class NaukriAutoApplyAgent {
     await this.launchBrowser();
     try {
       await this.handleLogin();
+      
+      if (this.config.autoBumpProfile) {
+        await this.bumpProfile();
+      }
+
       await this.setupFilters();
       await this.iterateJobListings();
     } finally {
@@ -101,6 +111,48 @@ export class NaukriAutoApplyAgent {
       }
     }
     return this.stats;
+  }
+
+  async bumpProfile() {
+    console.log("\nSTEP 1.5: Auto-bumping profile for HR search ranking...");
+    try {
+      await this.safeGoto(this.page, "https://www.naukri.com/mnjuser/profile", "Profile Page");
+      await wait(3000);
+      
+      const success = await this.page.evaluate(() => {
+         const headers = Array.from(document.querySelectorAll("*")).filter(el => el.textContent === 'Resume Headline');
+         if (!headers.length) return false;
+         
+         const header = headers[headers.length - 1];
+         const widgetHead = header.closest('.widgetHead') || header.parentElement;
+         if (!widgetHead) return false;
+         
+         const editBtn = widgetHead.querySelector('.edit, [class*="edit"], span:last-child');
+         if (editBtn) {
+            editBtn.click();
+            return true;
+         }
+         return false;
+      });
+      
+      if (success) {
+         await wait(2000);
+         const textarea = this.page.locator('form textarea').first();
+         if (await textarea.isVisible().catch(()=>false)) {
+            let val = await textarea.inputValue();
+            val = val.endsWith('.') ? val.slice(0, -1) : val + '.';
+            await textarea.fill(val);
+            const saveBtn = this.page.locator('form button:has-text("Save"), button:has-text("Save"), form button[type="submit"]').first();
+            await saveBtn.click().catch(()=>null);
+            console.log("-> Profile updated! 'Active Today' badge applied!");
+            await wait(2000);
+         }
+      } else {
+         console.log("-> Skip profile bump, widget format changed.");
+      }
+    } catch (err) {
+      console.log("-> Profile bump encountered an error:", err.message);
+    }
   }
 
   async launchBrowser() {
