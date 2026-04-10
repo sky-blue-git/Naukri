@@ -105,8 +105,9 @@ export class NaukriAutoApplyAgent {
 
   async launchBrowser() {
     const profilePath = path.join(this.rootDir, ".naukri-browser-profile");
+    const isHeadless = parseBoolean(process.env.HEADLESS, false, false);
     this.context = await chromium.launchPersistentContext(profilePath, {
-      headless: false,
+      headless: isHeadless,
       viewport: null,
       args: [
         "--start-maximized",
